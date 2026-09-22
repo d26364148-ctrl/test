@@ -23,6 +23,9 @@ jobs:
 
       - name: Iniciar QEMU com KVM e VNC (Localhost:5900)
         run: |
+          # Liberta as permissões do KVM para o runner conseguir usar a aceleração de hardware
+          sudo chmod 666 /dev/kvm
+          
           qemu-system-x86_64 \
             -enable-kvm \
             -cpu host \
@@ -34,7 +37,7 @@ jobs:
             -netdev user,id=net0 \
             -device rtl8139,netdev=net0 &
           
-          echo "QEMU a arrancar..."
+          echo "QEMU a arrancar com KVM..."
 
       - name: Iniciar noVNC (Porta 6080)
         run: |
