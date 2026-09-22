@@ -1,4 +1,4 @@
-name: Damn Small Linux via QEMU KVM + VNC TCP
+name: Damn Small Linux via QEMU KVM + Bore VNC
 
 on:
   workflow_dispatch:
@@ -8,14 +8,16 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Instalar QEMU e Cloudflared
+      - name: Instalar QEMU e Bore
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-x86 qemu-utils wget
           
-          # Descarregar o binário oficial do Cloudflare Tunnel
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
+          # Descarregar e instalar o bore v0.6.0[span_1](start_span)[span_1](end_span)
+          wget -q https://github.com/ekzhang/bore/releases/download/v0.6.0/bore-v0.6.0-x86_64-unknown-linux-musl.tar.gz
+          tar -xzf bore-v0.6.0-x86_64-unknown-linux-musl.tar.gz
+          sudo mv bore /usr/local/bin/
+          chmod +x /usr/local/bin/bore
 
       - name: Descarregar a ISO do Damn Small Linux
         run: |
@@ -26,7 +28,6 @@ jobs:
           # Liberta as permissões do KVM
           sudo chmod 666 /dev/kvm
           
-          # 0.0.0.0:0 abre o VNC na porta padrão 5900 aceita pelo túnel TCP
           qemu-system-x86_64 \
             -enable-kvm \
             -cpu host \
@@ -34,22 +35,20 @@ jobs:
             -smp 2 \
             -cdrom dsl.iso \
             -boot d \
-            -vnc 0.0.0.0:0 \
+            -vnc 127.0.0.1:0 \
             -netdev user,id=net0 \
             -device rtl8139,netdev=net0 &
           
           echo "QEMU a arrancar com KVM..."
 
-      - name: Expor VNC via Cloudflare TCP Tunnel
+      - name: Expor VNC via Bore TCP Tunnel
         run: |
-          echo "=== A INICIAR TÚNEL TCP CLOUDFLARE ==="
-          cloudflared tunnel --url tcp://localhost:5900 > vnc_tcp.log 2>&1 &
+          echo "=== A INICIAR TÚNEL BORE ==="
+          # Inicia o bore apontando para o servidor público padrão (bore.pub)
+          bore local 5900 --to bore.pub &
           
-          sleep 10
-          
-          echo "=== ENDEREÇO TCP PARA A APP VNC ==="
-          cat vnc_tcp.log | grep -oE "tcp://[a-zA-Z0-9.-]+\.trycloudflare\.com:[0-9]+" || cat vnc_tcp.log
-          echo "=================================="
+          # Aguarda o estabelecimento do túnel e mostra o endereço/porta gerados
+          sleep 5
           
           # Mantém a VM ativa por 2 horas
           sleep 7200
