@@ -1,18 +1,17 @@
-name: Damn Small Linux via QEMU KVM + VNC
+name: Damn Small Linux via QEMU KVM + noVNC
 
 on:
   workflow_dispatch:
 
 jobs:
   qemu-vnc-vm:
-  # O KVM (aceleração de hardware) nativo funciona perfeitamente em runners Ubuntu
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Instalar QEMU e Cloudflared
+      - name: Instalar QEMU, noVNC e Cloudflared
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils wget
+          sudo apt-get install -y qemu-system-x86 qemu-utils wget novnc python3-websockify
           
           # Descarregar o binário oficial do Cloudflare Tunnel
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
@@ -22,11 +21,8 @@ jobs:
         run: |
           wget -q "https://archive.org/download/damn-small-linux-4.4.10/dsl-4.4.10.iso" -O dsl.iso
 
-      - name: Iniciar QEMU com KVM e VNC (Porta 5900)
+      - name: Iniciar QEMU com KVM e VNC (Localhost:5900)
         run: |
-          # -enable-kvm: usa virtualização de hardware da nuvem do GitHub
-          # -m 512: 512 MB de RAM (mais que suficiente para o DSL)
-          # -vnc 0.0.0.0:0: expõe o ecrã virtual na porta VNC padrão 5900
           qemu-system-x86_64 \
             -enable-kvm \
             -cpu host \
@@ -34,24 +30,29 @@ jobs:
             -smp 2 \
             -cdrom dsl.iso \
             -boot d \
-            -vnc 0.0.0.0:0 \
+            -vnc 127.0.0.1:0 \
             -netdev user,id=net0 \
             -device rtl8139,netdev=net0 &
           
-          echo "QEMU a arrancar em segundo plano..."
+          echo "QEMU a arrancar..."
 
-      - name: Expor VNC via Cloudflare TCP Tunnel
+      - name: Iniciar noVNC (Porta 6080)
         run: |
-          echo "=== A INICIAR TÚNEL CLOUDFLARE PARA O VNC ==="
-          cloudflared tunnel --url tcp://localhost:5900 > vnc_tunnel.log 2>&1 &
+          # Cria a ponte entre o VNC (5900) e o servidor web do noVNC (6080)
+          websockify --web=/usr/share/novnc/ 6080 localhost:5900 &
+          sleep 3
+
+      - name: Expor Web VNC via Cloudflare Tunnel
+        run: |
+          echo "=== A INICIAR TÚNEL CLOUDFLARE ==="
+          cloudflared tunnel --url http://localhost:6080 > tunnel.log 2>&1 &
           
-          # Aguarda alguns segundos para o túnel estabelecer a ligação
-          sleep 10
+          sleep 8
           
-          echo "=== ENDEREÇO DE LIGAÇÃO VNC ==="
-          cat vnc_tunnel.log | grep -oE "tcp://[a-zA-Z0-9.-]+\.trycloudflare\.com:[0-9]+" || cat vnc_tunnel.log
-          echo "============================================="
+          echo "=== LINK DE ACESSO WEB DIRETO ==="
+          cat tunnel.log | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com"
+          echo "=================================="
           
-          # Mantém o workflow aberto por 2 horas para interagir com a VM
+          # Mantém a VM ativa por 2 horas
           sleep 7200
           
