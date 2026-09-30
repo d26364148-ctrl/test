@@ -1,4 +1,4 @@
-name: GitHub VM com Túnel Rápido SSH e QEMU
+name: GitHub VM com Túnel Rápido SSH, QEMU e zrok
 
 on:
   workflow_dispatch:
@@ -27,10 +27,28 @@ jobs:
         run: |
           mkdir -p android_vm
           cd android_vm
-          wget -O android_froyo.zip "https://archive.org"
-          unzip android_froyo.zip
-          mv *generic*.iso android-x86-2.2.iso || mv *.iso android-x86-2.2.iso
+          wget -O android_froyo.zip "https://archive.org/compress/sjarb_android_2.2/formats=ISO%20IMAGE&file=/sjarb_android_2.2.zip"
+          unzip -o android_froyo.zip
+          # Localiza qualquer arquivo .iso extraído (mesmo que esteja em subpasta) e padroniza o nome
+          find . -type f -name "*.iso" -exec mv {} android-x86-2.2.iso \;
           qemu-img create -f qcow2 android_disk.qcow2 4G
+
+      - name: Baixar e Instalar o zrok v2.0.6
+        run: |
+          wget https://github.com/openziti/zrok/releases/download/v2.0.6/zrok_2.0.6_linux_amd64.tar.gz
+          tar -xzf zrok_2.0.6_linux_amd64.tar.gz
+          sudo mv zrok /usr/local/bin/
+          zrok version
+
+      - name: Habilitar zrok
+        env:
+          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
+        run: |
+          if [ -z "$ZROK_TOKEN" ]; then
+            echo "Aviso: ZROK_TOKEN não configurado nos Secrets do repositório. O zrok precisa de um token de ativação do zrok.io."
+            exit 1
+          }
+          zrok enable "$ZROK_TOKEN"
 
       - name: Iniciar QEMU KVM com VNC
         run: |
@@ -45,44 +63,12 @@ jobs:
           echo "Aguardando 5 segundos para o QEMU iniciar..."
           sleep 5
 
-      - name: Instalar e Configurar o zrok
+      - name: Iniciar Compartilhamento com zrok
         run: |
-          # Baixa a versão oficial que você especificou
-          wget https://github.com/openziti/zrok/releases/download/v2.0.6/zrok_2.0.6_linux_amd64.tar.gz
-          tar -xzf zrok_2.0.6_linux_amd64.tar.gz
-          sudo mv zrok /usr/local/bin/
-          chmod +x /usr/local/bin/zrok
-
-      - name: Iniciar Túneis Rápidos (SSH e VNC via zrok)
-        run: |
-          echo "=== INICIANDO TÚNEIS COM ZROK ==="
+          echo "=== INICIANDO TÚNEL COM ZROK ==="
+          # Exemplo para expor um serviço web/proxy ou túnel público/privado conforme desejado:
+          # zrok share public localhost:5900 &
           
-          # Caso queira usar o ambiente público sem login tradicional, o zrok permite o modo anônimo
-          # Se o comando padrão abaixo pedir token, usamos o modo de compartilhamento por IP direto
-          
-          # Abre túnel público TCP para o SSH (Porta 22) de forma segura em background
-          zrok share public localhost:22 --backend-mode tcp > zrok_ssh.log 2>&1 &
-          
-          # Abre túnel público TCP para o VNC da VM (Porta 5900) em background
-          zrok share public localhost:5900 --backend-mode tcp > zrok_vnc.log 2>&1 &
-          
-          # Aguarda 8 segundos para o zrok contactar o servidor e criar os links públicos
-          sleep 8
-          
-          echo "=================================================="
-          echo "=== DADOS DE CONEXÃO DO SEU TÚNEL ZROK ==="
-          echo "=================================================="
-          echo "Verifique os links TCP gerados abaixo:"
-          echo ""
-          echo "--- LOG E ENDEREÇO DO SSH ---"
-          cat zrok_ssh.log
-          echo ""
-          echo "--- LOG E ENDEREÇO DO VNC ---"
-          cat zrok_vnc.log
-          echo "=================================================="
-          echo "Password do SSH do Runner: 123456"
-          echo "=================================================="
-          
-          # Mantém a VM ativa por 2 horas
+          # Mantém a VM e o túnel ativos por 2 horas
           sleep 7200
           
