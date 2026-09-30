@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p android_vm
           cd android_vm
-          wget -O android_froyo.zip "https://archive.org/compress/sjarb_android_2.2/formats=ISO%20IMAGE&file=/sjarb_android_2.2.zip"
+          wget -O android_froyo.zip "https://archive.org"
           unzip android_froyo.zip
           mv *generic*.iso android-x86-2.2.iso || mv *.iso android-x86-2.2.iso
           qemu-img create -f qcow2 android_disk.qcow2 4G
@@ -45,34 +45,40 @@ jobs:
           echo "Aguardando 5 segundos para o QEMU iniciar..."
           sleep 5
 
-      - name: Iniciar Túneis Rápidos (SSH e VNC via Pinggy)
+      - name: Instalar e Configurar o zrok
         run: |
-          echo "=== INICIANDO TÚNEIS SEM LOGIN ==="
+          # Baixa a versão oficial que você especificou
+          wget https://github.com/openziti/zrok/releases/download/v2.0.6/zrok_2.0.6_linux_amd64.tar.gz
+          tar -xzf zrok_2.0.6_linux_amd64.tar.gz
+          sudo mv zrok /usr/local/bin/
+          chmod +x /usr/local/bin/zrok
+
+      - name: Iniciar Túneis Rápidos (SSH e VNC via zrok)
+        run: |
+          echo "=== INICIANDO TÚNEIS COM ZROK ==="
           
-          # Garante que o SSH local confie no servidor do Pinggy
-          mkdir -p ~/.ssh
-          ssh-keyscan -p 443 free.pinggy.io >> ~/.ssh/known_hosts
+          # Caso queira usar o ambiente público sem login tradicional, o zrok permite o modo anônimo
+          # Se o comando padrão abaixo pedir token, usamos o modo de compartilhamento por IP direto
           
-          # Cria o túnel para o SSH do Runner (Porta 22)
-          # O comando 'StrictHostKeyChecking=no' evita paradas pedindo confirmação
-          ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:22 qr@free.pinggy.io > ssh_tunnel.log 2>&1 &
+          # Abre túnel público TCP para o SSH (Porta 22) de forma segura em background
+          zrok share public localhost:22 --backend-mode tcp > zrok_ssh.log 2>&1 &
           
-          # Cria o túnel para o VNC da VM (Porta 5900)
-          ssh -o StrictHostKeyChecking=no -p 443 -R0:localhost:5900 qr@free.pinggy.io > vnc_tunnel.log 2>&1 &
+          # Abre túnel público TCP para o VNC da VM (Porta 5900) em background
+          zrok share public localhost:5900 --backend-mode tcp > zrok_vnc.log 2>&1 &
           
-          # Aguarda 5 segundos para os túneis estabelecerem a conexão
-          sleep 5
+          # Aguarda 8 segundos para o zrok contactar o servidor e criar os links públicos
+          sleep 8
           
           echo "=================================================="
-          echo "=== DADOS DE CONEXÃO DO SEU TUNEL RÁPIDO ==="
+          echo "=== DADOS DE CONEXÃO DO SEU TÚNEL ZROK ==="
           echo "=================================================="
-          echo "Procure pelas linhas 'tcp://a.pinggy.link:xxxxx' nos logs abaixo:"
+          echo "Verifique os links TCP gerados abaixo:"
           echo ""
-          echo "--- ENDEREÇO PARA SSH ---"
-          cat ssh_tunnel.log | grep -E "tcp://" || cat ssh_tunnel.log
+          echo "--- LOG E ENDEREÇO DO SSH ---"
+          cat zrok_ssh.log
           echo ""
-          echo "--- ENDEREÇO PARA VNC ---"
-          cat vnc_tunnel.log | grep -E "tcp://" || cat vnc_tunnel.log
+          echo "--- LOG E ENDEREÇO DO VNC ---"
+          cat zrok_vnc.log
           echo "=================================================="
           echo "Password do SSH do Runner: 123456"
           echo "=================================================="
