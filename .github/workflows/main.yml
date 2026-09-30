@@ -1,4 +1,4 @@
-name: GitHub VM com Túnel Rápido SSH, QEMU e zrok
+name: GitHub VM com QEMU e Túnel Serveo (4 Horas)
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
 jobs:
   ssh-tunnel:
     runs-on: ubuntu-22.04
+    timeout-minutes: 240 # Permite que o job do GitHub Actions rode por até 4 horas
 
     steps:
       - name: Configurar e Iniciar Servidor SSH
@@ -29,26 +30,8 @@ jobs:
           cd android_vm
           wget -O android_froyo.zip "https://archive.org/compress/sjarb_android_2.2/formats=ISO%20IMAGE&file=/sjarb_android_2.2.zip"
           unzip -o android_froyo.zip
-          # Localiza qualquer arquivo .iso extraído (mesmo que esteja em subpasta) e padroniza o nome
           find . -type f -name "*.iso" -exec mv {} android-x86-2.2.iso \;
           qemu-img create -f qcow2 android_disk.qcow2 4G
-
-      - name: Baixar e Instalar o zrok v2.0.6
-        run: |
-          wget https://github.com/openziti/zrok/releases/download/v2.0.6/zrok_2.0.6_linux_amd64.tar.gz
-          tar -xzf zrok_2.0.6_linux_amd64.tar.gz
-          sudo mv zrok /usr/local/bin/
-          zrok version
-
-      - name: Habilitar zrok
-        env:
-          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
-        run: |
-          if [ -z "$ZROK_TOKEN" ]; then
-            echo "Aviso: ZROK_TOKEN não configurado nos Secrets do repositório. O zrok precisa de um token de ativação do zrok.io."
-            exit 1
-          }
-          zrok enable "$ZROK_TOKEN"
 
       - name: Iniciar QEMU KVM com VNC
         run: |
@@ -63,12 +46,27 @@ jobs:
           echo "Aguardando 5 segundos para o QEMU iniciar..."
           sleep 5
 
-      - name: Iniciar Compartilhamento com zrok
+      - name: Iniciar Túnel Rápido com Serveo (Sem Limite de Tempo)
         run: |
-          echo "=== INICIANDO TÚNEL COM ZROK ==="
-          # Exemplo para expor um serviço web/proxy ou túnel público/privado conforme desejado:
-          # zrok share public localhost:5900 &
+          echo "=== INICIANDO TÚNEL VNC VIA SERVEO ==="
           
-          # Mantém a VM e o túnel ativos por 2 horas
-          sleep 7200
+          mkdir -p ~/.ssh
+          ssh-keyscan serveo.net >> ~/.ssh/known_hosts
+          
+          # Cria o túnel para o VNC da VM (Porta 5900) via Serveo em background
+          ssh -o StrictHostKeyChecking=no -R 0:localhost:5900 serveo.net > vnc_tunnel.log 2>&1 &
+          
+          # Aguarda o túnel conectar
+          sleep 5
+          
+          echo "=================================================="
+          echo "=== LINK DE ACESSO VNC (COPIE ABAIXO) ==="
+          echo "=================================================="
+          cat vnc_tunnel.log | grep -E "serveo.net" || cat vnc_tunnel.log
+          echo "=================================================="
+          echo "Nota: O Serveo continuará ativo por 4 horas."
+          echo "=================================================="
+          
+          # Mantém a VM ativa por 4 horas (14400 segundos)
+          sleep 14400
           
