@@ -1,4 +1,4 @@
-name: GitHub VM com QEMU e Túnel Serveo (4 Horas)
+name: GitHub VM com QEMU e Túnel zrok2 (4 Horas)
 
 on:
   workflow_dispatch:
@@ -6,21 +6,13 @@ on:
 jobs:
   ssh-tunnel:
     runs-on: ubuntu-22.04
-    timeout-minutes: 240 # Permite que o job do GitHub Actions rode por até 4 horas
+    timeout-minutes: 240 # Permite que o job rode por até 4 horas
 
     steps:
-      - name: Configurar e Iniciar Servidor SSH
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y openssh-server
-          echo "runner:123456" | sudo chpasswd
-          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo service ssh restart
-
       - name: Instalar QEMU e Liberar Permissões KVM
         run: |
-          sudo apt-get install -y qemu-system-x86 qemu-utils wget unzip
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils wget unzip curl
           sudo usermod -aG kvm $USER
           sudo chmod 666 /dev/kvm
 
@@ -32,6 +24,21 @@ jobs:
           unzip -o android_froyo.zip
           find . -type f -name "*.iso" -exec mv {} android-x86-2.2.iso \;
           qemu-img create -f qcow2 android_disk.qcow2 4G
+
+      - name: Instalar zrok2 Oficial
+        run: |
+          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
+          zrok2 version
+
+      - name: Habilitar zrok2
+        env:
+          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
+        run: |
+          if [ -z "$ZROK_TOKEN" ]; then
+            echo "Erro: ZROK_TOKEN não configurado nos Secrets do repositório."
+            exit 1
+          fi
+          zrok2 enable "$ZROK_TOKEN"
 
       - name: Iniciar QEMU KVM com VNC
         run: |
@@ -46,27 +53,20 @@ jobs:
           echo "Aguardando 5 segundos para o QEMU iniciar..."
           sleep 5
 
-      - name: Iniciar Túnel Rápido com Serveo (Sem Limite de Tempo)
+      - name: Iniciar Túnel Público com zrok2 para o VNC
         run: |
-          echo "=== INICIANDO TÚNEL VNC VIA SERVEO ==="
+          echo "=== INICIANDO TÚNEL ZROK2 PARA O VNC ==="
+          zrok2 share public localhost:5900 > zrok_tunnel.log 2>&1 &
           
-          mkdir -p ~/.ssh
-          ssh-keyscan serveo.net >> ~/.ssh/known_hosts
-          
-          # Cria o túnel para o VNC da VM (Porta 5900) via Serveo em background
-          ssh -o StrictHostKeyChecking=no -R 0:localhost:5900 serveo.net > vnc_tunnel.log 2>&1 &
-          
-          # Aguarda o túnel conectar
-          sleep 5
+          # Aguarda o túnel gerar o link de acesso
+          sleep 8
           
           echo "=================================================="
-          echo "=== LINK DE ACESSO VNC (COPIE ABAIXO) ==="
+          echo "=== LINK DE ACESSO ZROK2 (COPIE ABAIXO) ==="
           echo "=================================================="
-          cat vnc_tunnel.log | grep -E "serveo.net" || cat vnc_tunnel.log
-          echo "=================================================="
-          echo "Nota: O Serveo continuará ativo por 4 horas."
+          cat zrok_tunnel.log
           echo "=================================================="
           
-          # Mantém a VM ativa por 4 horas (14400 segundos)
+          # Mantém a VM e o túnel ativos por 4 horas (14400 segundos)
           sleep 14400
           
