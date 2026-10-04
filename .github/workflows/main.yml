@@ -1,72 +1,36 @@
-name: GitHub VM com QEMU e Túnel zrok2 (4 Horas)
+name: Build ExtendedAndroidTools CI
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Permite clicar em "Run workflow" manualmente no site do GitHub
+  push:
+    branches: [ "main", "master" ]
 
 jobs:
-  ssh-tunnel:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 240 # Permite que o job rode por até 4 horas
+  build-tools:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Instalar QEMU e Liberar Permissões KVM
+      - name: 1. Clonar o repositório oficial
         run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils wget unzip curl
-          sudo usermod -aG kvm $USER
-          sudo chmod 666 /dev/kvm
+          git clone https://github.com/facebookexperimental/ExtendedAndroidTools.git
 
-      - name: Baixar ISO do Android x86 2.2
+      - name: 2. Construir a imagem Docker
         run: |
-          mkdir -p android_vm
-          cd android_vm
-          wget -O android_froyo.zip "https://archive.org/compress/sjarb_android_2.2/formats=ISO%20IMAGE&file=/sjarb_android_2.2.zip"
-          unzip -o android_froyo.zip
-          find . -type f -name "*.iso" -exec mv {} android-x86-2.2.iso \;
-          qemu-img create -f qcow2 android_disk.qcow2 4G
+          cd ExtendedAndroidTools
+          ./scripts/build-docker-image.sh
 
-      - name: Instalar zrok2 Oficial
+      - name: 3. Compilar as ferramentas (bpftrace / bpftools)
         run: |
-          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
-          zrok2 version
+          cd ExtendedAndroidTools
+          # Nota: Em vez de run-docker-build-env.sh (que abre um terminal interativo e daria erro no CI),
+          # usamos o comando direto do Docker para correr o make de forma automática.
+          docker run --rm -v "$(pwd)":/workspace -w /workspace extended-android-tools make bpftools
 
-      - name: Habilitar zrok2
-        env:
-          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
-        run: |
-          if [ -z "$ZROK_TOKEN" ]; then
-            echo "Erro: ZROK_TOKEN não configurado nos Secrets do repositório."
-            exit 1
-          fi
-          zrok2 enable "$ZROK_TOKEN"
-
-      - name: Iniciar QEMU KVM com VNC
-        run: |
-          cd android_vm
-          sudo qemu-system-x86_64 -enable-kvm -m 1024 -smp 2 \
-            -hda android_disk.qcow2 \
-            -cdrom android-x86-2.2.iso \
-            -boot d \
-            -vga std \
-            -vnc :0 &
-          
-          echo "Aguardando 5 segundos para o QEMU iniciar..."
-          sleep 5
-
-      - name: Iniciar Túnel Público com zrok2 para o VNC
-        run: |
-          echo "=== INICIANDO TÚNEL ZROK2 PARA O VNC ==="
-          zrok2 share public localhost:5900 > zrok_tunnel.log 2>&1 &
-          
-          # Aguarda o túnel gerar o link de acesso
-          sleep 8
-          
-          echo "=================================================="
-          echo "=== LINK DE ACESSO ZROK2 (COPIE ABAIXO) ==="
-          echo "=================================================="
-          cat zrok_tunnel.log
-          echo "=================================================="
-          
-          # Mantém a VM e o túnel ativos por 4 horas (14400 segundos)
-          sleep 14400
-          
+      - name: 4. Partilhar o link de download (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: bpftools-arm64-package
+          path: |
+            ExtendedAndroidTools/out/android/**/*.tar.gz
+            ExtendedAndroidTools/*.tar.gz
+            
