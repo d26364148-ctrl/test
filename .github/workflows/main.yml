@@ -1,7 +1,7 @@
 name: Build ExtendedAndroidTools CI
 
 on:
-  workflow_dispatch: # Permite clicar em "Run workflow" manualmente no site do GitHub
+  workflow_dispatch: # Permite disparar manualmente no site do GitHub
   push:
     branches: [ "main", "master" ]
 
@@ -19,14 +19,14 @@ jobs:
           cd ExtendedAndroidTools
           ./scripts/build-docker-image.sh
 
-      - name: 3. Compilar as ferramentas (bpftrace / bpftools)
+      - name: 3. Compilar as ferramentas DENTRO do Docker
         run: |
           cd ExtendedAndroidTools
-          # Nota: Em vez de run-docker-build-env.sh (que abre um terminal interativo e daria erro no CI),
-          # usamos o comando direto do Docker para correr o make de forma automática.
+          # O comando docker run garante que o 'make bpftools' corre dentro do ambiente isolado,
+          # evitando o erro 126 no host do Ubuntu.
           docker run --rm -v "$(pwd)":/workspace -w /workspace extended-android-tools make bpftools
 
-      - name: 4. Partilhar o link de download (Artifacts)
+      - name: 4. Guardar Binários (Artifacts)
         uses: actions/upload-artifact@v4
         with:
           name: bpftools-arm64-package
