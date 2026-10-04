@@ -1,115 +1,53 @@
-name: Build bpftools archives
+name: Conectar no Ubuntu via Cloudflare SSH
 
-on: [push, pull_request]
+on:
+  workflow_dispatch:
 
 jobs:
-  build_bpftools:
-    name: Build bpftools archive
+  ssh-cloudflare:
     runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        env:
-          - ARCH: arm64
-          - ARCH: x86_64
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            python3 \
-            flex \
-            bison \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            texinfo \
-            libelf-dev \
-            zlib1g-dev
-      - name: Setup NDK
-        run: ./scripts/download-ndk.sh
-      - name: Build
-        env: ${{ matrix.env }}
-        run: make bpftools NDK_PATH=`pwd`/android-ndk-r27b NDK_ARCH=${{ matrix.env['ARCH'] }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bpftools-android-${{ matrix.env['ARCH'] }}.tar.gz
-          path: bpftools-${{ matrix.env['ARCH'] }}.tar.gz
 
-  build_bpftools_min:
-    name: Build bpftools-min archive
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        env:
-          - ARCH: arm64
-          - ARCH: x86_64
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            python3 \
-            flex \
-            bison \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            texinfo \
-            libelf-dev \
-            zlib1g-dev
-      - name: Setup NDK
-        run: ./scripts/download-ndk.sh
-      - name: Build
-        run: make bpftools-min NDK_PATH=`pwd`/android-ndk-r27b NDK_ARCH=${{ matrix.env['ARCH'] }}
-      - uses: actions/upload-artifact@v4
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
         with:
-          name: bpftools-min-android-${{ matrix.env['ARCH'] }}.tar.gz
-          path: bpftools-min-${{ matrix.env['ARCH'] }}.tar.gz
+          root-reserve-mb: 5120
+          swap-size-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
 
-  build_bpftrace_static:
-    name: Build static bpftrace binaries
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        env:
-          - ARCH: arm64
-          - ARCH: x86_64
-          - ARCH: armv7
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            python3 \
-            flex \
-            bison \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            texinfo \
-            libelf-dev \
-            zlib1g-dev
-      - name: Setup NDK
-        run: ./scripts/download-ndk.sh
-      - name: Build
-        run: make bpftrace NDK_PATH=`pwd`/android-ndk-r27b NDK_ARCH=${{ matrix.env['ARCH'] }} STATIC_LINKING=true LLVM_BPF_ONLY=true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bpftrace-android-${{ matrix.env['ARCH'] }}
-          path: out/android/${{ matrix.env['ARCH'] }}/bin/bpftrace
+          sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev libtinfo5 libncurses5 lld llvm
+
+      - name: Configure SSH Server and Cloudflare Tunnel
+        run: |
+          # 1. Configurar uma senha padrão temporária para o usuário 'runner' na VM
+          echo "runner:moto30" | sudo chpasswd
+          
+          # 2. Configurar o SSHD para permitir login por senha de forma segura
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
+          sudo systemctl restart ssh
+          
+          # 3. Baixar o executável oficial do Cloudflare Tunnel
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          
+          # 4. Iniciar o túnel TCP gratuito apontando para a porta do SSH (22)
+          echo "=== DADOS DE CONEXÃO DO CLOUDFLARE TUNNEL ==="
+          cloudflared tunnel --url tcp://localhost:22 > cloudflare.log 2>&1 &
+          
+          # Espera o túnel estabelecer a rota pública
+          sleep 12
+          
+          # CORREÇÃO: Ajustado de a-z para pegar todas as letras maiúsculas de A a Z
+          cat cloudflare.log | grep -oE "tcp://[a-zA-Z0-9.-]+\.trycloudflare\.com:[0-9]+" || cat cloudflare.log | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" || true
+          echo "============================================="
+          
+          # Mantém o Job aberto por até 6 horas para você compilar o kernel com calma
+          sleep 21600
           
