@@ -1,53 +1,73 @@
-name: Conectar no Ubuntu via Cloudflare SSH
+name: Android x86 2.2 QEMU KVM
 
 on:
   workflow_dispatch:
 
 jobs:
-  ssh-cloudflare:
-    runs-on: ubuntu-22.04
+  run-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # Define o limite máximo do job para 3 horas
 
     steps:
-      - name: Maximize Build Space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 5120
-          swap-size-mb: 2048
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Verify KVM Acceleration
         run: |
+          echo "Verificando suporte a KVM no runner do GitHub..."
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache flex g++-multilib gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev libtinfo5 libncurses5 lld llvm
+          sudo apt-get install -y cpu-checker unzip
+          kvm-ok
+          sudo chmod 777 /dev/kvm
+          ls -l /dev/kvm
 
-      - name: Configure SSH Server and Cloudflare Tunnel
+      - name: Install QEMU, noVNC and Tools (via APT)
         run: |
-          # 1. Configurar uma senha padrão temporária para o usuário 'runner' na VM
-          echo "runner:moto30" | sudo chpasswd
+          sudo apt-get install -y qemu-kvm qemu-system-x86 curl wget novnc python3-websockify
+
+      - name: Download and Extract Android x86 2.2 from Archive.org
+        run: |
+          echo "A descarregar o pacote ZIP do Archive.org..."
+          wget -O sjarb_android_2.2.zip "https://archive.org/compress/sjarb_android_2.2/formats=ISO%20IMAGE&file=/sjarb_android_2.2.zip"
           
-          # 2. Configurar o SSHD para permitir login por senha de forma segura
-          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-          sudo sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
-          sudo systemctl restart ssh
+          echo "A extrair o conteúdo..."
+          unzip sjarb_android_2.2.zip -d extracted_android/
           
-          # 3. Baixar o executável oficial do Cloudflare Tunnel
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
-          
-          # 4. Iniciar o túnel TCP gratuito apontando para a porta do SSH (22)
-          echo "=== DADOS DE CONEXÃO DO CLOUDFLARE TUNNEL ==="
-          cloudflared tunnel --url tcp://localhost:22 > cloudflare.log 2>&1 &
-          
-          # Espera o túnel estabelecer a rota pública
-          sleep 12
-          
-          # CORREÇÃO: Ajustado de a-z para pegar todas as letras maiúsculas de A a Z
-          cat cloudflare.log | grep -oE "tcp://[a-zA-Z0-9.-]+\.trycloudflare\.com:[0-9]+" || cat cloudflare.log | grep -oE "https://[a-zA-Z0-9.-]+\.trycloudflare\.com" || true
-          echo "============================================="
-          
-          # Mantém o Job aberto por até 6 horas para você compilar o kernel com calma
-          sleep 21600
+          # Localizar e copiar a ISO genérica para a raiz do workspace
+          find extracted_android/ -name "*generic*.iso" -exec cp {} android-x86.iso \;
+          ls -l android-x86.iso
+
+      - name: Create Virtual Hard Disk
+        run: |
+          qemu-img create -f qcow2 android_disk.qcow2 2G
+
+      - name: Launch QEMU with KVM and Web Browser VNC
+        run: |
+          echo "A iniciar o QEMU com aceleração KVM e VNC..."
+          qemu-system-x86_64 \
+            -enable-kvm \
+            -cpu host \
+            -m 1024 \
+            -smp 2 \
+            -cdrom android-x86.iso \
+            -hda android_disk.qcow2 \
+            -net nic,model=e1000 \
+            -net user \
+            -vnc :0 &
+
+          echo "A iniciar o Websockify para o noVNC na porta 6080..."
+          websockify --web /usr/share/novnc/ 6080 localhost:5900 &
+
+          echo "A criar túnel web seguro via SSH (localhost.run)..."
+          ssh -o StrictHostKeyChecking=no -R 80:localhost:6080 localhost.run &
+
+      - name: Setup Tmate (Terminal Backup)
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: false
+
+      - name: Keep Alive
+        run: |
+          echo "Ambiente a correr por 3 horas. Procura nos logs o link do localhost.run para abrir o ecrã no navegador!"
+          sleep 3h
           
