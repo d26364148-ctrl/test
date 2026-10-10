@@ -11,38 +11,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. FAZ O CLONE DO REPOSITÓRIO (Essencial para baixar o código-fonte)
+      # 1. Faz o clone do repositório no runner
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          repository: 'northmendo/Appzuku'
-          token: ${{ secrets.GITHUB_TOKEN }} # Opcional se for público, obrigatório se for privado
 
-      # 2. Configurar o ambiente Java (OpenJDK 17)
+      # 2. Configura o Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Configurar o Android SDK Manager (SDK, Build-Tools e NDK)
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          sdk-version: '34'
-          build-tools-version: '34.0.0'
-          ndk-version: '29.0.13117171'
-          components: platforms;android-34 build-tools;34.0.0 ndk;29.0.13117171
+      # 3. Instala o SDK, Build-Tools e NDK diretamente via sdkmanager oficial
+      - name: Install Android SDK and NDK
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;29.0.13117171"
 
-      # 4. Dar permissão de execução ao Gradle Wrapper (gradlew)
+      # 4. Dá permissão de execução ao Gradle Wrapper
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
-      # 5. Compilar a APK em modo Debug
+      # 5. Compila a APK em modo Debug
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug
 
-      # 6. Guardar a APK gerada como artefato do GitHub Actions
+      # 6. Guarda o APK gerado nos artefatos da Action
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
