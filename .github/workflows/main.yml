@@ -11,32 +11,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Faz o clone do repositório no runner
+      # 1. Faz o checkout/clone do repositório
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Configura o Java 17
+      # 2. Configura o ambiente Java (JDK 17)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Instala o SDK, Build-Tools e NDK diretamente via sdkmanager oficial
-      - name: Install Android SDK and NDK
+      # 3. Aceita todas as licenças do Android SDK de forma automática
+      - name: Accept Android SDK Licenses
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;29.0.13117171"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      # 4. Dá permissão de execução ao Gradle Wrapper
-      - name: Grant execute permission for gradlew
+      # 4. Dá permissão de execução ao script do Gradle
+      - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # 5. Compila a APK em modo Debug
+      # 5. Compila a APK garantindo que o Gradle baixa o SDK/NDK necessário sozinho
       - name: Build APK with Gradle
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --no-daemon -Dandroid.builder.sdk.download=true
 
-      # 6. Guarda o APK gerado nos artefatos da Action
+      # 6. Salva a APK gerada nos artefatos da Action
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
