@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Clonar o repositório com submodules (essencial para o aapt2 da ReVanced)
+      # 1. Clone com submódulos exatamente como no guia
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
@@ -18,28 +18,28 @@ jobs:
           submodules: 'recursive'
           fetch-depth: 1
 
-      # 2. Instalar dependências necessárias (como o protoc)
-      - name: Install Protobuf Compiler
+      # 2. Instalação exata do protoc via comando original do README
+      - name: Install Protobuf Dependency (v21.12)
         run: |
           wget https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
           sudo unzip -p protoc-*.zip bin/protoc -d /usr/local/bin/
           sudo chmod +x /usr/local/bin/protoc
 
-      # 3. Configurar o Android NDK (necessário para compilar código nativo C++)
-      - name: Setup Android SDK and NDK
+      # 3. Configurar o Android SDK e NDK na versão exata (27.3.13750724)
+      - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
           ndk-version: '27.3.13750724'
           components: 'ndk;27.3.13750724'
 
-      # 4. Aplicar patches e compilar o aapt2 para arm64-v8a
-      - name: Build aapt2 arm64-v8a
+      # 4. Aplicar o patch e compilar para arm64-v8a seguindo o comando oficial
+      - name: Build binary for arm64-v8a
         run: |
           ./patch.sh
-          ANDROID_NDK="$ANDROID_HOME/ndk/27.3.13750724" ./build.sh arm64-v8a
+          ANDROID_NDK="$ANDROID_HOME/ndk/27.3.13750724/" ./build.sh arm64-v8a
 
-      # 5. Guardar o binário compilado como artefato para poderes descarregar e usar no telemóvel
-      - name: Upload aapt2 arm64 binary
+      # 5. Guardar o binário gerado (build/bin/aapt-*) nos artefatos
+      - name: Upload aapt2 arm64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: aapt2-arm64-v8a
