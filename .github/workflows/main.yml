@@ -1,44 +1,47 @@
-name: Build Appzuku APK
+name: Build aapt2 for ARM64
 
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-arm64:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Faz o checkout/clone do repositório
-      - name: Checkout repository
+      # 1. Clonar o repositório com submodules (essencial para o aapt2 da ReVanced)
+      - name: Checkout repository with submodules
         uses: actions/checkout@v4
-
-      # 2. Configura o ambiente Java (JDK 17)
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          repository: 'ReVanced/aapt2'
+          submodules: 'recursive'
+          fetch-depth: 1
 
-      # 3. Aceita todas as licenças do Android SDK de forma automática
-      - name: Accept Android SDK Licenses
+      # 2. Instalar dependências necessárias (como o protoc)
+      - name: Install Protobuf Compiler
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
+          sudo unzip -p protoc-*.zip bin/protoc -d /usr/local/bin/
+          sudo chmod +x /usr/local/bin/protoc
 
-      # 4. Dá permissão de execução ao script do Gradle
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      # 3. Configurar o Android NDK (necessário para compilar código nativo C++)
+      - name: Setup Android SDK and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          ndk-version: '27.3.13750724'
+          components: 'ndk;27.3.13750724'
 
-      # 5. Compila a APK garantindo que o Gradle baixa o SDK/NDK necessário sozinho
-      - name: Build APK with Gradle
-        run: ./gradlew assembleDebug --no-daemon -Dandroid.builder.sdk.download=true
+      # 4. Aplicar patches e compilar o aapt2 para arm64-v8a
+      - name: Build aapt2 arm64-v8a
+        run: |
+          ./patch.sh
+          ANDROID_NDK="$ANDROID_HOME/ndk/27.3.13750724" ./build.sh arm64-v8a
 
-      # 6. Salva a APK gerada nos artefatos da Action
-      - name: Upload APK Artifact
+      # 5. Guardar o binário compilado como artefato para poderes descarregar e usar no telemóvel
+      - name: Upload aapt2 arm64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: appzuku-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: aapt2-arm64-v8a
+          path: build/bin/aapt-*
           
