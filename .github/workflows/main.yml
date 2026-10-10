@@ -11,18 +11,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Baixar o código-fonte do repositório
+      # 1. FAZ O CLONE DO REPOSITÓRIO (Essencial para baixar o código-fonte)
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          repository: 'northmendo/Appzuku'
+          token: ${{ secrets.GITHUB_TOKEN }} # Opcional se for público, obrigatório se for privado
 
-      # 2. Configurar o ambiente Java
+      # 2. Configurar o ambiente Java (OpenJDK 17)
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. Configurar o SDK Manager e instalar os componentes
+      # 3. Configurar o Android SDK Manager (SDK, Build-Tools e NDK)
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -31,7 +34,7 @@ jobs:
           ndk-version: '29.0.13117171'
           components: platforms;android-34 build-tools;34.0.0 ndk;29.0.13117171
 
-      # 4. Dar permissão de execução ao Gradle Wrapper
+      # 4. Dar permissão de execução ao Gradle Wrapper (gradlew)
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
@@ -39,7 +42,7 @@ jobs:
       - name: Build APK with Gradle
         run: ./gradlew assembleDebug
 
-      # 6. Guardar a APK gerada como um artefato do GitHub Actions
+      # 6. Guardar a APK gerada como artefato do GitHub Actions
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
