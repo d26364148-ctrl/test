@@ -1,4 +1,4 @@
-name: Build aapt2 for ARM64
+name: Compile with Android NDK
 
 on:
   push:
@@ -6,42 +6,33 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-arm64:
+  build-ndk:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Clone com submódulos exatamente como no guia
-      - name: Checkout repository with submodules
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          repository: 'ReVanced/aapt2'
-          submodules: 'recursive'
-          fetch-depth: 1
 
-      # 2. Instalação exata do protoc via comando original do README
-      - name: Install Protobuf Dependency (v21.12)
-        run: |
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.12/protoc-21.12-linux-x86_64.zip
-          sudo unzip -p protoc-*.zip bin/protoc -d /usr/local/bin/
-          sudo chmod +x /usr/local/bin/protoc
-
-      # 3. Configurar o Android SDK e NDK na versão exata (27.3.13750724)
       - name: Setup Android NDK
         uses: android-actions/setup-android@v3
         with:
           ndk-version: '27.3.13750724'
           components: 'ndk;27.3.13750724'
 
-      # 4. Aplicar o patch e compilar para arm64-v8a seguindo o comando oficial
-      - name: Build binary for arm64-v8a
+      - name: Compile with NDK Toolchain
         run: |
-          ./patch.sh
-          ANDROID_NDK="$ANDROID_HOME/ndk/27.3.13750724/" ./build.sh arm64-v8a
+          # Exemplo usando CMake com o NDK toolchain para arm64-v8a
+          cmake -B build -S . \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release
 
-      # 5. Guardar o binário gerado (build/bin/aapt-*) nos artefatos
-      - name: Upload aapt2 arm64 artifact
+          cmake --build build
+
+      - name: Upload compiled binary
         uses: actions/upload-artifact@v4
         with:
-          name: aapt2-arm64-v8a
-          path: build/bin/aapt-*
+          name: ndk-binary-arm64
+          path: build/  # Ajusta o caminho para onde o teu binário for gerado
           
