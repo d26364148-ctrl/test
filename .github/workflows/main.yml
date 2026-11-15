@@ -35,21 +35,19 @@ jobs:
         run: |
           clang --version
 
-      - name: Configure and Build Linux Kernel with LLVM
+      - name: Configure and Build Linux Kernel for ARM64 with LLVM
         run: |
           cd linux-src
           
-          echo "Gerando configuração padrão (defconfig)..."
-          make O=out LLVM=1 LLVM_IAS=1 defconfig
+          echo "Gerando configuração para ARM64 (defconfig)..."
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 defconfig
           
-          echo "Iniciando a compilação do kernel com Clang..."
-          make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
+          echo "Iniciando a compilação do kernel ARM64 com Clang (limitado a 3 CPUs)..."
+          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 -j3 Image
 
       - name: Upload Compiled Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-kernel-image
-          path: |
-            linux-src/out/arch/x86/boot/bzImage
-            linux-src/out/arch/arm64/boot/Image
-          if-no-files-found: warn
+          name: linux-kernel-arm64-image
+          path: linux-src/out/arch/arm64/boot/Image
+          if-no-files-found: error
