@@ -1,36 +1,62 @@
-name: Compile with Android NDK
+name: Build Linux Kernel (Torvalds Mainline + Google AOSP Clang)
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
 
 jobs:
-  build-ndk:
+  build-kernel:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Android NDK
-        uses: android-actions/setup-android@v3
-        with:
-          ndk-version: '27.3.13750724'
-
-      - name: Compile with NDK Toolchain
+      - name: Install Build Dependencies & Git
         run: |
-          cmake -B build -S . \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/27.3.13750724/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-21 \
-            -DCMAKE_BUILD_TYPE=Release
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev python3 lld cpio libncurses-dev
 
-          cmake --build build
+      - name: Clone Linux Kernel Source
+        run: |
+          echo "Baixando o código-fonte do kernel Linux..."
+          git clone --depth=1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux-src
 
-      - name: Upload compiled binary
+      - name: Setup Official Google AOSP Clang (r596125)
+        run: |
+          echo "Baixando toolchain oficial do Google (clang-r596125) na VM..."
+          rm -rf $HOME/aosp-clang
+          mkdir -p $HOME/aosp-clang
+          cd $HOME/aosp-clang
+          
+          git init
+          git remote add origin https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
+          git config core.sparseCheckout true
+          echo "clang-r596125" >> .git/info/sparse-checkout
+          
+          git pull origin main --depth 1
+          
+          echo "$HOME/aosp-clang/clang-r596125/bin" >> $GITHUB_PATH
+
+      - name: Verify Official Clang Version
+        run: |
+          clang --version
+
+      - name: Configure and Build Linux Kernel with LLVM
+        run: |
+          cd linux-src
+          
+          echo "Gerando configuração padrão (defconfig)..."
+          make O=out LLVM=1 LLVM_IAS=1 defconfig
+          
+          echo "Iniciando a compilação do kernel com Clang..."
+          make O=out LLVM=1 LLVM_IAS=1 -j$(nproc)
+
+      - name: Upload Compiled Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ndk-binary-arm64
-          path: build/
-          
+          name: linux-kernel-image
+          path: |
+            linux-src/out/arch/x86/boot/bzImage
+            linux-src/out/arch/arm64/boot/Image
+          if-no-files-found: warn
