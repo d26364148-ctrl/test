@@ -26,17 +26,10 @@ jobs:
 
       - name: Setup Official Google AOSP Clang (r596125)
         run: |
-          echo "Baixando toolchain oficial do Google (clang-r596125) na VM..."
-          rm -rf $HOME/aosp-clang
-          mkdir -p $HOME/aosp-clang
+          echo "Baixando toolchain oficial do Google (clang-r596125)..."
+          git clone --depth=1 --filter=blob:none --sparse https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $HOME/aosp-clang
           cd $HOME/aosp-clang
-          
-          git init
-          git remote add origin https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
-          git config core.sparseCheckout true
-          echo "clang-r596125" >> .git/info/sparse-checkout
-          
-          git pull origin master --depth 1
+          git sparse-checkout set clang-r596125
           
           echo "$HOME/aosp-clang/clang-r596125/bin" >> $GITHUB_PATH
 
@@ -89,11 +82,8 @@ jobs:
           DEFCONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
           echo "Usando defconfig: $DEFCONFIG"
 
-          # Configuração e preparação dos headers com LLVM
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 $DEFCONFIG
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 modules_prepare
-          
-          # Compilação do módulo externo apontando para o diretório de saída
           make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 M=test_module modules
 
       - name: Upload Compiled .ko Artifact
