@@ -1,94 +1,42 @@
-name: Build LTO/CFI Kernel Module (Caprip cnb)
+name: Build Clang ARM64
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'test_module/**'
-      - '.github/workflows/main.yml'
 
 jobs:
-  build-module:
+  build-clang:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Kernel Source (Branch cnb)
-        uses: actions/checkout@v4
-        with:
-          repository: Evolution-X-Devices/kernel_motorola_sm6225
-          ref: cnb
-          fetch-depth: 1
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          df -h
 
-      - name: Install Build Dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git libelf-dev libssl-dev python3 lld
+          sudo apt-get install -y cmake ninja-build python3 git lld clang
 
-      - name: Setup Official Google AOSP Clang (r596125)
+      - name: Clone LLVM project
         run: |
-          echo "Baixando toolchain oficial do Google (clang-r596125)..."
-          git clone --depth=1 --filter=blob:none --sparse https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 $HOME/aosp-clang
-          cd $HOME/aosp-clang
-          git sparse-checkout set clang-r596125
-          
-          echo "$HOME/aosp-clang/clang-r596125/bin" >> $GITHUB_PATH
+          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Verify Official Clang Version
+      - name: Configure CMake
         run: |
-          clang --version
+          cmake -G Ninja -S llvm-src/llvm -B build \
+            -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_USE_LINKER=lld \
+            -DLLVM_PARALLEL_LINK_JOBS=1
 
-      - name: Create Test Module Source (Fallback if folder not present)
+      - name: Build clang and lld
         run: |
-          if [ ! -d "test_module" ]; then
-            mkdir -p test_module
-            cat << 'EOF' > test_module/hello_test.c
-          #include <linux/init.h>
-          #include <linux/module.h>
-          #include <linux/kernel.h>
+          ninja -C build clang lld
+          ./build/bin/clang --version
 
-          MODULE_LICENSE("GPL");
-          MODULE_AUTHOR("djfjfjfjjf");
-          MODULE_DESCRIPTION("Moto G30 sm6225 Official Clang LTO/CFI Test Module");
-
-          static int __init hello_init(void) {
-              pr_info("hello_test: modulo compilado com AOSP Clang oficial carregado com sucesso!\n");
-              return 0;
-          }
-
-          static void __exit hello_exit(void) {
-              pr_info("hello_test: modulo finalizado.\n");
-          }
-
-          module_init(hello_init);
-          module_exit(hello_exit);
-          EOF
-
-            cat << 'EOF' > test_module/Makefile
-          obj-m += hello_test.o
-          EOF
-          fi
-
-      - name: Prepare Kernel Headers & Build Module with LLVM
-        run: |
-          echo "Procurando defconfig do bengal-perf..."
-          CONFIG_PATH=$(find arch/arm64/configs -name "bengal-perf_defconfig" -o -name "*bengal-perf*defconfig" | head -n 1)
-          
-          if [ -z "$CONFIG_PATH" ]; then
-            echo "Erro crítico: Nenhum defconfig 'bengal-perf_defconfig' foi encontrado!"
-            find arch/arm64/configs -maxdepth 3
-            exit 1
-          fi
-
-          DEFCONFIG=$(echo "$CONFIG_PATH" | sed 's|arch/arm64/configs/||')
-          echo "Usando defconfig: $DEFCONFIG"
-
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 $DEFCONFIG
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 modules_prepare
-          make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 M=test_module modules
-
-      - name: Upload Compiled .ko Artifact
+      - name: Upload clang binary
         uses: actions/upload-artifact@v4
         with:
-          name: moto-g30-official-clang-module
-          path: out/test_module/*.ko
-          if-no-files-found: error
+          name: clang-arm64-toolchain
+          path: build/bin/clang
