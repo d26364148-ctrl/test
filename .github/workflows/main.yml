@@ -6,10 +6,11 @@ on:
 jobs:
   build-clang:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
           df -h
 
       - name: Install dependencies
@@ -21,12 +22,16 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-src
 
-      - name: Configure CMake
+      - name: Configure CMake (ThinLTO + AArch64/ARM)
         run: |
           cmake -G Ninja -S llvm-src/llvm -B build \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
             -DLLVM_ENABLE_PROJECTS="clang;lld" \
+            -DLLVM_ENABLE_RUNTIMES="" \
             -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_ENABLE_LTO=Thin \
             -DLLVM_USE_LINKER=lld \
             -DLLVM_PARALLEL_LINK_JOBS=1
 
@@ -34,6 +39,11 @@ jobs:
         run: |
           ninja -C build clang lld
           ./build/bin/clang --version
+
+      # Opcional: se você já tiver um arquivo de perfil PGO (.profdata),
+      # adicione -DLLVM_PROFDATA_FILE=/caminho/para/clang.profdata no CMake.
+      # Opcional: se instalar/compilar llvm-bolt, aplique sobre build/bin/clang
+      # usando um perfil coletado antes de fazer o upload.
 
       - name: Upload clang binary
         uses: actions/upload-artifact@v4
