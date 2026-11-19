@@ -1,52 +1,68 @@
-name: Build Clang ARM64
+name: Build LineageOS 20.0 (caprip)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-clang:
+  build-lineage:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    env:
+      USE_CCACHE: "1"
+      CCACHE_EXEC: "/usr/bin/ccache"
+      ANDROID_JACK_VM_ARGS: "-Xmx4g -XX:+UseCompressedOops"
+
     steps:
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android /usr/local/lib/node_modules
           df -h
 
-      - name: Install dependencies
+      - name: Install build packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build python3 git lld clang
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl erofs-utils flex \
+            g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
+            kmod protobuf-compiler python3-protobuf python-is-python3 \
+            lib32readline-dev lib32z1-dev libdw-dev libelf-dev libgnutls28-dev \
+            lz4 libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
+            pngcrush rsync schedtool squashfs-tools xsltproc xxd zip zlib1g-dev \
+            openjdk-11-jdk
 
-      - name: Clone LLVM project
+      - name: Configure git and repo
         run: |
-          git clone --depth 1 https://github.com/llvm/llvm-project.git llvm-src
+          mkdir -p ~/bin ~/android/lineage
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+          git config --global user.email "builder@example.com"
+          git config --global user.name "Lineage Builder"
+          git config --global trailer.changeid.key "Change-Id"
+          git lfs install
+          ccache -M 25G
+          ccache -o compression=true
 
-      - name: Configure CMake (ThinLTO + AArch64/ARM)
+      - name: Repo init and sync (lineage-20.0)
         run: |
-          cmake -G Ninja -S llvm-src/llvm -B build \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DLLVM_ENABLE_PROJECTS="clang;lld" \
-            -DLLVM_ENABLE_RUNTIMES="" \
-            -DLLVM_TARGETS_TO_BUILD="AArch64;ARM" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_ENABLE_LTO=Thin \
-            -DLLVM_USE_LINKER=lld \
-            -DLLVM_PARALLEL_LINK_JOBS=1
+          cd ~/android/lineage
+          ~/bin/repo init -u https://github.com/LineageOS/android.git -b lineage-20.0 --git-lfs --no-clone-bundle
+          ~/bin/repo sync -c -j4 --no-tags --no-clone-bundle
+          df -h
 
-      - name: Build clang and lld
+      - name: Prepare device and build ROM
         run: |
-          ninja -C build clang lld
-          ./build/bin/clang --version
+          cd ~/android/lineage
+          source build/envsetup.sh
+          breakfast caprip
+          brunch caprip
 
-      # Opcional: se você já tiver um arquivo de perfil PGO (.profdata),
-      # adicione -DLLVM_PROFDATA_FILE=/caminho/para/clang.profdata no CMake.
-      # Opcional: se instalar/compilar llvm-bolt, aplique sobre build/bin/clang
-      # usando um perfil coletado antes de fazer o upload.
-
-      - name: Upload clang binary
+      - name: Upload ROM artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: clang-arm64-toolchain
-          path: build/bin/clang
+          name: lineage-20.0-caprip-out
+          path: |
+            ~/android/lineage/out/target/product/caprip/lineage-*.zip
+            ~/android/lineage/out/target/product/caprip/boot.img
+          if-no-files-found: warn
