@@ -7,55 +7,65 @@ jobs:
   build-lineage:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-    env:
-      USE_CCACHE: "1"
-      CCACHE_EXEC: "/usr/bin/ccache"
-      ANDROID_JACK_VM_ARGS: "-Xmx4g -XX:+UseCompressedOops"
 
     steps:
-      - name: Free disk space
+      - name: Free disk space on host
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android /usr/local/lib/node_modules
+          docker system prune -af --volumes || true
           df -h
 
-      - name: Install build packages
+      - name: Pull Ubuntu 22.04 Docker image
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl erofs-utils flex \
-            g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
-            kmod protobuf-compiler python3-protobuf python-is-python3 \
-            lib32readline-dev lib32z1-dev libdw-dev libelf-dev libgnutls28-dev \
-            lz4 libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
-            pngcrush rsync schedtool squashfs-tools xsltproc xxd zip zlib1g-dev \
-            openjdk-11-jdk
+          docker pull ubuntu:22.04
 
-      - name: Configure git and repo
+      - name: Setup environment, sync and build inside Docker
+        env:
+          USE_CCACHE: "1"
+          CCACHE_EXEC: "/usr/bin/ccache"
+          DEBIAN_FRONTEND: "noninteractive"
         run: |
-          mkdir -p ~/bin ~/android/lineage
-          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-          git config --global user.email "builder@example.com"
-          git config --global user.name "Lineage Builder"
-          git config --global trailer.changeid.key "Change-Id"
-          git lfs install
-          ccache -M 25G
-          ccache -o compression=true
+          docker run --rm \
+            -e USE_CCACHE \
+            -e CCACHE_EXEC \
+            -e DEBIAN_FRONTEND \
+            -v /tmp/lineage-build:/workspace \
+            ubuntu:22.04 \
+            bash -c '
+              set -e
+              apt-get update
+              apt-get install -y \
+                bc bison build-essential ccache curl erofs-utils flex \
+                g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
+                kmod protobuf-compiler python3-protobuf python-is-python3 \
+                lib32ncurses5-dev lib32readline-dev lib32z1-dev libdw-dev \
+                libelf-dev libgnutls28-dev libncurses5 libncurses5-dev lz4 \
+                libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
+                pngcrush rsync schedtool squashfs-tools xsltproc xxd zip zlib1g-dev \
+                openjdk-11-jdk
 
-      - name: Repo init and sync (lineage-20.0)
-        run: |
-          cd ~/android/lineage
-          ~/bin/repo init -u https://github.com/LineageOS/android.git -b lineage-20.0 --git-lfs --no-clone-bundle
-          ~/bin/repo sync -c -j4 --no-tags --no-clone-bundle
-          df -h
+              mkdir -p ~/bin /workspace/android/lineage
+              curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+              chmod a+x ~/bin/repo
+              export PATH="$HOME/bin:$PATH"
 
-      - name: Prepare device and build ROM
-        run: |
-          cd ~/android/lineage
-          source build/envsetup.sh
-          breakfast caprip
-          brunch caprip
+              git config --global user.email "builder@example.com"
+              git config --global user.name "Lineage Builder"
+              git config --global trailer.changeid.key "Change-Id"
+              git lfs install
+
+              ccache -M 25G
+              ccache -o compression=true
+
+              cd /workspace/android/lineage
+              repo init -u https://github.com/LineageOS/android.git -b lineage-20.0 --git-lfs --no-clone-bundle
+              repo sync -c -j4 --no-tags --no-clone-bundle
+              df -h
+
+              source build/envsetup.sh
+              breakfast caprip
+              brunch caprip
+            '
 
       - name: Upload ROM artifacts
         if: always()
@@ -63,6 +73,6 @@ jobs:
         with:
           name: lineage-20.0-caprip-out
           path: |
-            ~/android/lineage/out/target/product/caprip/lineage-*.zip
-            ~/android/lineage/out/target/product/caprip/boot.img
+            /tmp/lineage-build/android/lineage/out/target/product/caprip/lineage-*.zip
+            /tmp/lineage-build/android/lineage/out/target/product/caprip/boot.img
           if-no-files-found: warn
