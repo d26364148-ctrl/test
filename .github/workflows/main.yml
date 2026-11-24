@@ -1,12 +1,21 @@
-name: Build LineageOS 20.0 (caprip)
+name: Build Kernel Poker (MMI-QOD30.163-3)
 
 on:
   workflow_dispatch:
+    inputs:
+      kernel_repo_url:
+        description: "URL do repositório com kernel-4.9, vendor e prebuilts (se diferente do workspace)"
+        required: false
+        default: ""
+      kernel_branch:
+        description: "Branch ou tag do repositório do kernel"
+        required: false
+        default: "MMI-QOD30.163-3"
 
 jobs:
-  build-lineage:
+  build-kernel-poker:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 180
 
     steps:
       - name: Free disk space on host
@@ -15,64 +24,242 @@ jobs:
           docker system prune -af --volumes || true
           df -h
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Pull Ubuntu 22.04 Docker image
         run: |
           docker pull ubuntu:22.04
 
-      - name: Setup environment, sync and build inside Docker
+      - name: Fetch readme and build kernel inside Docker
         env:
-          USE_CCACHE: "1"
-          CCACHE_EXEC: "/usr/bin/ccache"
           DEBIAN_FRONTEND: "noninteractive"
+          KERNEL_REPO_URL: "${{ inputs.kernel_repo_url }}"
+          KERNEL_BRANCH: "${{ inputs.kernel_branch }}"
         run: |
+          mkdir -p /tmp/poker-build
+
           docker run --rm \
-            -e USE_CCACHE \
-            -e CCACHE_EXEC \
             -e DEBIAN_FRONTEND \
-            -v /tmp/lineage-build:/workspace \
+            -e KERNEL_REPO_URL \
+            -e KERNEL_BRANCH \
+            -v "$PWD":/repo-src \
+            -v /tmp/poker-build:/workspace \
             ubuntu:22.04 \
             bash -c '
-              set -e
+              set -euo pipefail
+
               apt-get update
               apt-get install -y \
-                bc bison build-essential ccache curl erofs-utils flex \
-                g++-multilib gcc-multilib git git-lfs gnupg gperf imagemagick \
-                kmod protobuf-compiler python3-protobuf python-is-python3 \
-                lib32ncurses5-dev lib32readline-dev lib32z1-dev libdw-dev \
-                libelf-dev libgnutls28-dev libncurses5 libncurses5-dev lz4 \
-                libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
-                pngcrush rsync schedtool squashfs-tools xsltproc xxd zip zlib1g-dev \
-                openjdk-11-jdk
+                bc bison build-essential ca-certificates ccache curl \
+                device-tree-compiler flex git git-lfs kmod libssl-dev \
+                libelf-dev make python2 python3 unzip zip
 
-              mkdir -p ~/bin /workspace/android/lineage
-              curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-              chmod a+x ~/bin/repo
-              export PATH="$HOME/bin:$PATH"
+              git clone --depth 1 --single-branch -b MMI-QOD30.163-3 \
+                https://github.com/MotorolaMobilityLLC/readme.git /workspace/readme-poker
 
-              git config --global user.email "builder@example.com"
-              git config --global user.name "Lineage Builder"
-              git config --global trailer.changeid.key "Change-Id"
-              git lfs install
+              ls -la /workspace/readme-poker
+              cat /workspace/readme-poker/MMI-QOD30.163-3.txt
 
-              ccache -M 25G
-              ccache -o compression=true
+              # Localiza ou clona a árvore com kernel-4.9, vendor e prebuilts
+              if [ -n "$KERNEL_REPO_URL" ]; then
+                git clone --depth 1 --single-branch -b "$KERNEL_BRANCH" "$KERNEL_REPO_URL" /workspace/src
+              elif [ -d /repo-src/kernel-4.9 ]; then
+                cp -a /repo-src/. /workspace/src
+              else
+                echo "ERRO: kernel-4.9 não encontrado no repositório atual e KERNEL_REPO_URL não foi informado."
+                echo "A receita MMI-QOD30.163-3.txt exige os diretórios: kernel-4.9/, vendor/ e prebuilts/."
+                exit 1
+              fi
 
-              cd /workspace/android/lineage
-              repo init -u https://github.com/LineageOS/android.git -b lineage-20.0 --git-lfs --no-clone-bundle
-              repo sync -c -j4 --no-tags --no-clone-bundle
-              df -h
+              cd /workspace/src
+              mydir="$(pwd)"
+              jobs="$(nproc)"
 
-              source build/envsetup.sh
-              breakfast caprip
-              brunch caprip
+              # Garante permissão de execução nos binários do toolchain e dtc
+              chmod -R +x "$mydir/prebuilts" 2>/dev/null || true
+              [ -f "$mydir/kernel-4.9/scripts/dtc/dtc_overlay" ] && chmod +x "$mydir/kernel-4.9/scripts/dtc/dtc_overlay" || true
+
+              mkdir -p "$mydir/kernel-4.9/out/target/product/generic/obj/kernel" \
+                       "$mydir/out/target/product/generic"
+
+              kernel_out_dir="$mydir/kernel-4.9/out/target/product/generic/obj/kernel"
+              cross="$mydir/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-"
+
+              common_flags=(
+                -j"$jobs" -w
+                -C kernel-4.9
+                KBUILD_RELSRC="$mydir/kernel-4.9"
+                O="$kernel_out_dir"
+                ARCH=arm64
+                CROSS_COMPILE="$cross"
+                KBUILD_BUILD_USER=
+                KBUILD_BUILD_HOST=
+                KCFLAGS=-mno-android
+              )
+
+              make "${common_flags[@]}" blackjack_64_defconfig &> "$mydir/1.log"
+              make "${common_flags[@]}" V=1 &> "$mydir/2.log"
+              make "${common_flags[@]}" dtbs &> "$mydir/3.log"
+              make "${common_flags[@]}" modules &> "$mydir/4.log"
+              make -j"$jobs" -w -C kernel-4.9 \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                INSTALL_MOD_PATH="$mydir/kernel-4.9/out/target/product/generic" \
+                INSTALL_MOD_STRIP="--strip-debug --remove-section=.note.gnu.build-id" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                modules_install &> "$mydir/5.log"
+
+              # 1. Connectivity common
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/common" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                modules \
+                AUTOCONF_H="$kernel_out_dir/include/generated/autoconf.h"
+
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/common" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                INSTALL_MOD_PATH="$mydir/out/target/product/generic" \
+                INSTALL_MOD_STRIP="--strip-debug --remove-section=.note.gnu.build-id" \
+                modules_install
+
+              cp "$mydir/vendor/mediatek/kernel_modules/connectivity/common/Module.symvers" \
+                 "$mydir/vendor/mediatek/kernel_modules/connectivity/bt/mt66xx/legacy/"
+              cp "$mydir/vendor/mediatek/kernel_modules/connectivity/common/Module.symvers" \
+                 "$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/adaptor/"
+
+              # 2. Bluetooth MT66xx legacy
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/bt/mt66xx/legacy" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                modules \
+                AUTOCONF_H="$kernel_out_dir/include/generated/autoconf.h" \
+                TOP="$mydir" \
+                MTK_BT_SUPPORT=yes \
+                MTK_BT_CHIP=MTK_CONSYS_MT6765
+
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/bt/mt66xx/legacy" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                INSTALL_MOD_PATH="$mydir/out/target/product/generic" \
+                INSTALL_MOD_STRIP="--strip-debug --remove-section=.note.gnu.build-id" \
+                modules_install
+
+              # 3. WLAN adaptor (corrigido KBUILD_RELSRC e AUTOCONF_H)
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/adaptor" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                modules \
+                MODULE_NAME=wmt_chrdev_wifi \
+                TOP="$mydir" \
+                AUTOCONF_H="$kernel_out_dir/include/generated/autoconf.h"
+
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/adaptor" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                INSTALL_MOD_PATH="$mydir/out/target/product/generic" \
+                INSTALL_MOD_STRIP="--strip-debug --remove-section=.note.gnu.build-id" \
+                modules_install
+
+              cp "$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/adaptor/Module.symvers" \
+                 "$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/core/gen4m/"
+
+              # 4. WLAN core gen4m (corrigido KBUILD_RELSRC)
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/core/gen4m" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                modules \
+                CONFIG_MTK_COMBO_WIFI_HIF=axi \
+                CONFIG_MTK_COMBO=y \
+                CONFIG_MTK_COMBO_CHIP_CONSYS_6765=y \
+                CONFIG_MTK_COMBO_CHIP=6765 \
+                MTK_COMBO_CHIP=CONNAC \
+                MTK_ANDROID_WMT=y \
+                WLAN_CHIP_ID=6765 \
+                CONFIG_MTK_BTIF=y \
+                CONFIG_MTK_AEE_FEATURE=y \
+                CONFIG_MTK_GPT_SCHEME_SUPPORT=y \
+                CONFIG_MACH_MT6765=y \
+                KERNEL_OUT="$kernel_out_dir" \
+                MTK_PLATFORM=mt6765 \
+                ARCH_MTK_PROJECT="fiji_64" \
+                TOP="$mydir" \
+                srctree="$mydir/kernel-4.9" \
+                AUTOCONF_H="$kernel_out_dir/include/generated/autoconf.h" \
+                MODULE_NAME=wlan_drv_gen4m \
+                CONFIG_COMPAT=y
+
+              make -j"$jobs" -w -C kernel-4.9 \
+                M="$mydir/vendor/mediatek/kernel_modules/connectivity/wlan/core/gen4m" \
+                KBUILD_RELSRC="$mydir/kernel-4.9" \
+                O="$kernel_out_dir" \
+                ARCH=arm64 \
+                CROSS_COMPILE="$cross" \
+                KBUILD_BUILD_USER= \
+                KBUILD_BUILD_HOST= \
+                KCFLAGS=-mno-android \
+                INSTALL_MOD_PATH="$mydir/out/target/product/generic" \
+                INSTALL_MOD_STRIP="--strip-debug --remove-section=.note.gnu.build-id" \
+                modules_install
+
+              mkdir -p /workspace/artifacts
+              cp -f "$kernel_out_dir/arch/arm64/boot/Image"* /workspace/artifacts/ 2>/dev/null || true
+              cp -f "$kernel_out_dir/arch/arm64/boot/mtk.dtb" /workspace/artifacts/ 2>/dev/null || true
+              cp -f "$kernel_out_dir/arch/arm64/boot/dts/mediatek/"*.dtb /workspace/artifacts/ 2>/dev/null || true
+              tar -czf /workspace/artifacts/modules-installed.tar.gz \
+                -C "$mydir" kernel-4.9/out/target/product/generic out/target/product/generic
+              cp -f "$mydir/"*.log /workspace/artifacts/ 2>/dev/null || true
+              ls -lh /workspace/artifacts
             '
 
-      - name: Upload ROM artifacts
+      - name: Upload kernel and module artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lineage-20.0-caprip-out
-          path: |
-            /tmp/lineage-build/android/lineage/out/target/product/caprip/lineage-*.zip
-            /tmp/lineage-build/android/lineage/out/target/product/caprip/boot.img
+          name: poker-kernel-mmI-qod30-163-3
+          path: /tmp/poker-build/artifacts/*
           if-no-files-found: warn
