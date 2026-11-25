@@ -19,11 +19,14 @@ jobs:
           sudo chown -R $USER:$USER /workspaces
           wget -q -O /workspaces/13.10_saucy_x86.tar.zst https://github.com/2cd/ubuntu-museum/releases/download/13.10/13.10_saucy_x86.tar.zst
           zstd -dc /workspaces/13.10_saucy_x86.tar.zst | docker import - ubuntu:13.10-x86
-          docker run --rm --network host -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
+          OLD_REL_IP=$(getent ahosts old-releases.ubuntu.com | awk '{ print $1; exit }')
+          docker run --rm --network host --add-host "old-releases.ubuntu.com:${OLD_REL_IP:-91.189.91.123}" -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
             set -e
+            rm -f /etc/resolv.conf
+            printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf
             apt-get update
-            apt-get install -y build-essential libncurses5-dev bc lzop git
-            apt-get install -y gcc-arm-linux-gnueabihf
+            apt-get install -y --force-yes build-essential libncurses5-dev bc lzop git
+            apt-get install -y --force-yes gcc-arm-linux-gnueabihf
             GIT_SSL_NO_VERIFY=1 git clone --depth=1 https://github.com/codekidX/android_kernel_frost_i9082.git
             cd android_kernel_frost_i9082
             sed -i "1i #ifndef F_OFD_GETLK\n#define F_OFD_GETLK 36\n#endif" arch/arm/kernel/sys_oabi-compat.c
