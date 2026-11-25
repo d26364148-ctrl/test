@@ -19,9 +19,10 @@ jobs:
           sudo chown -R $USER:$USER /workspaces
           wget -q -O /workspaces/13.10_saucy_x86.tar.zst https://github.com/2cd/ubuntu-museum/releases/download/13.10/13.10_saucy_x86.tar.zst
           zstd -dc /workspaces/13.10_saucy_x86.tar.zst | docker import - ubuntu:13.10-x86
-          docker run --rm -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
+          docker run --rm --network host -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
+            set -e
             apt-get update
-            apt-get install -y build-essential libncurses5-dev bc lzop
+            apt-get install -y build-essential libncurses5-dev bc lzop git
             apt-get install -y gcc-arm-linux-gnueabihf
             GIT_SSL_NO_VERIFY=1 git clone --depth=1 https://github.com/codekidX/android_kernel_frost_i9082.git
             cd android_kernel_frost_i9082
