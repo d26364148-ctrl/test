@@ -22,8 +22,6 @@ jobs:
           OLD_REL_IP=$(getent ahosts old-releases.ubuntu.com | awk '{ print $1; exit }')
           docker run --rm --network host --add-host "old-releases.ubuntu.com:${OLD_REL_IP:-91.189.91.123}" -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
             set -e
-            rm -f /etc/resolv.conf
-            printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf
             apt-get update
             apt-get install -y --force-yes build-essential libncurses5-dev bc lzop git
             apt-get install -y --force-yes gcc-arm-linux-gnueabihf
