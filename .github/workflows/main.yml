@@ -1,12 +1,7 @@
-name: Build Samsung i9082 Kernel (Ubuntu 13.10 x86 Docker)
+name: Build Samsung i9082 Kernel
 
 on:
   workflow_dispatch:
-    inputs:
-      defconfig:
-        description: "Nome do defconfig"
-        required: true
-        default: "cyanogenmod_i9082_defconfig"
 
 jobs:
   build:
@@ -18,47 +13,29 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Prepare workspaces, clone kernel, and import Ubuntu 13.10 x86 image
+      - name: Import image and run build commands
         run: |
           sudo mkdir -p /workspaces
           sudo chown -R $USER:$USER /workspaces
           wget -q -O /workspaces/13.10_saucy_x86.tar.zst https://github.com/2cd/ubuntu-museum/releases/download/13.10/13.10_saucy_x86.tar.zst
           zstd -dc /workspaces/13.10_saucy_x86.tar.zst | docker import - ubuntu:13.10-x86
-
-          if [ ! -d /workspaces/android_kernel_frost_i9082 ]; then
-            GIT_SSL_NO_VERIFY=1 git clone --depth=1 https://github.com/codekidX/android_kernel_frost_i9082.git /workspaces/android_kernel_frost_i9082
-          fi
-
-      - name: Compile kernel inside ubuntu:13.10-x86 container
-        run: |
-          docker run --rm \
-            --dns 8.8.8.8 \
-            --dns 1.1.1.1 \
-            -v /workspaces:/workspaces \
-            -v "${{ github.workspace }}:/repo" \
-            -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
-            set -e
-            printf "nameserver 8.8.8.8\nnameserver 1.1.1.1\n" > /etc/resolv.conf
-            sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
-            apt-get update -o Acquire::http::No-Cache=True
-            apt-get install -y --force-yes build-essential libncurses5-dev bc lzop gcc-arm-linux-gnueabihf
-
-            cd /workspaces/android_kernel_frost_i9082
-            if [ -f arch/arm/kernel/sys_oabi-compat.c ] && ! grep -q "F_OFD_GETLK" arch/arm/kernel/sys_oabi-compat.c; then
-              sed -i "1i #ifndef F_OFD_GETLK\n#define F_OFD_GETLK 36\n#endif" arch/arm/kernel/sys_oabi-compat.c
-            fi
-
+          docker run --rm -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
+            apt-get update
+            apt-get install -y build-essential libncurses5-dev bc lzop
+            apt-get install -y gcc-arm-linux-gnueabihf
+            GIT_SSL_NO_VERIFY=1 git clone --depth=1 https://github.com/codekidX/android_kernel_frost_i9082.git
+            cd android_kernel_frost_i9082
+            sed -i "1i #ifndef F_OFD_GETLK\n#define F_OFD_GETLK 36\n#endif" arch/arm/kernel/sys_oabi-compat.c
             make ARCH=arm mrproper
-            make ARCH=arm ${{ inputs.defconfig }}
+            make ARCH=arm cyanogenmod_i9082_defconfig
             make -j$(nproc) ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
-
             mkdir -p /repo/out
             cp arch/arm/boot/zImage /repo/out/
             find . -name "*.ko" -exec cp {} /repo/out/ \;
           '
 
-      - name: Upload compiled kernel artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: i9082-zimage-and-modules
+          name: i9082-kernel
           path: out/*
