@@ -13,14 +13,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Import image and run build commands
+      - name: Import Ubuntu 13.10 x64 and run build
         run: |
           sudo mkdir -p /workspaces
           sudo chown -R $USER:$USER /workspaces
-          wget -q -O /workspaces/13.10_saucy_x86.tar.zst https://github.com/2cd/ubuntu-museum/releases/download/13.10/13.10_saucy_x86.tar.zst
-          zstd -dc /workspaces/13.10_saucy_x86.tar.zst | docker import - ubuntu:13.10-x86
-          OLD_REL_IP=$(getent ahosts old-releases.ubuntu.com | awk '{ print $1; exit }')
-          docker run --rm --network host --add-host "old-releases.ubuntu.com:${OLD_REL_IP:-91.189.91.123}" -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x86 /bin/bash -c '
+          wget -q -O /workspaces/13.10_saucy_x64.tar.zst https://github.com/2cd/ubuntu-museum/releases/download/13.10/13.10_saucy_x64.tar.zst
+          zstd -dc /workspaces/13.10_saucy_x64.tar.zst | docker import - ubuntu:13.10-x64
+          docker run --rm --network host -v /workspaces:/workspaces -v "${{ github.workspace }}:/repo" -w /workspaces ubuntu:13.10-x64 /bin/bash -c '
             set -e
             apt-get update
             apt-get install -y --force-yes build-essential libncurses5-dev bc lzop git
